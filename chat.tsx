@@ -6,7 +6,7 @@
  * named from it, the composer docks, and a mock agent reply streams in word by
  * word. No model runs; every reply is a demo string.
  *
- * Other surfaces: transparent titlebar, sidebar threads, history arrows,
+ * Other surfaces: the platform titlebar, sidebar threads, history arrows,
  * thread search, the inspector, an animated sidebar, native markdown, and the
  * virtualized transcript.
  *
@@ -91,7 +91,10 @@ const TRAFFIC_LIGHT_CLEARANCE =
   typeof process !== 'undefined' && process.platform === 'darwin' ? 86 : 8
 const CONTENT_MAX_WIDTH = 720
 /** The centered new-task composer is roomier than the docked one. */
-const HERO_MAX_WIDTH = 780
+const HERO_MAX_WIDTH = 768
+/** The startup composer: 120px tall when empty, growing to a 304px cap. */
+const HERO_MIN_HEIGHT = 120
+const HERO_MAX_HEIGHT = 304
 const TITLEBAR_HEIGHT = 48
 
 const FONT_SANS = typeof window === 'undefined' ? 'Helvetica' : 'IBM Plex Sans'
@@ -149,7 +152,7 @@ const CHAT_THEME = {
   border: C.border,
   bg: C.canvas,
   accent: C.accent,
-  // GPUI paints the caret itself: 2px wide, 75% of the font size, 500ms blink.
+  // GPUI paints the caret itself: 2px wide, line height tall, 500ms blink.
   // White is what the platform caret looks like on this graphite surface.
   caret: '#FFFFFF',
   fontSans: FONT_SANS,
@@ -1663,40 +1666,6 @@ function Composer({
   const fontSize = hero ? 15 : 14
   const lineHeight = hero ? 22 : 20
   const textInset = hero ? 12 : 10
-  /**
-   * GPUI sizes its caret to cap height — `min(0.75em, lineHeight)` — and draws it
-   * at the text origin, which is exactly where the placeholder starts, so an
-   * empty composer shows a short bar running through the first glyph. While the
-   * composer is empty the native caret is hidden and this full-line bar blinks
-   * in its place, which is what a platform caret looks like. As soon as there is
-   * text the native caret takes over again.
-   */
-  const caretHeight = Math.round(fontSize * 1.2)
-  const caretTop = Math.max(0, Math.round((lineHeight - caretHeight) / 2))
-  const [focused, setFocused] = useState(false)
-  const [caretOn, setCaretOn] = useState(true)
-  const mockCaret = focused && value.length === 0
-  const theme = useMemo(
-    () => (mockCaret ? { ...CHAT_THEME, caret: '#00000000' } : CHAT_THEME),
-    [mockCaret],
-  )
-  useEffect(() => {
-    // `autoFocus` focuses the native input without emitting a React focus event,
-    // so focus is read from the renderer instead of onFocus/onBlur. The poll
-    // only re-renders when the answer changes.
-    const id = composerRef.current?.id
-    if (id == null || !renderer?.getFocusedElementId) return
-    const sync = () => setFocused(renderer.getFocusedElementId?.() === id)
-    sync()
-    const timer = setInterval(sync, 200)
-    return () => clearInterval(timer)
-  }, [renderer, focusTick])
-  useEffect(() => {
-    if (!mockCaret) return
-    setCaretOn(true)
-    const timer = setInterval(() => setCaretOn((on) => !on), 500)
-    return () => clearInterval(timer)
-  }, [mockCaret])
   const send = (text: string) => {
     if (busy) return
     const next = text.trim()
@@ -1723,6 +1692,8 @@ function Composer({
           flexDirection: 'column',
           width: '100%',
           maxWidth: hero ? HERO_MAX_WIDTH : CONTENT_MAX_WIDTH,
+          minHeight: hero ? HERO_MIN_HEIGHT : undefined,
+          maxHeight: hero ? HERO_MAX_HEIGHT : undefined,
           overflow: 'visible',
           backgroundColor: C.composer,
           borderRadius: hero ? 20 : 16,
@@ -1732,48 +1703,29 @@ function Composer({
           paddingBottom: hero ? 16 : 10,
         }}
       >
-        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', width: '100%' }}>
-          <textarea
-            ref={composerRef}
-            testId="composer"
-            value={value}
-            placeholder="Do anything..."
-            minRows={hero ? 3 : 1}
-            maxRows={hero ? 5 : 3}
-            autoFocus
-            theme={theme}
-            style={{
-              width: '100%',
-              minWidth: 0,
-              fontSize,
-              lineHeight,
-              color: C.text,
-              backgroundColor: '#00000000',
-              borderWidth: 0,
-              paddingLeft: textInset,
-              paddingRight: textInset,
-            }}
-            onChange={(event) => onChange(event.value ?? '')}
-            onSubmit={(event) => send(event.value ?? value)}
-          />
-          {mockCaret && (
-            <div
-              testId="composer-caret"
-              style={{
-                position: 'absolute',
-                // A hair left of the text origin, so the bar never merges with
-                // the first glyph's stem — platform fields inset the placeholder
-                // by the caret width instead.
-                left: textInset - 3,
-                top: caretTop,
-                width: 2,
-                height: caretHeight,
-                backgroundColor: caretOn ? '#FFFFFF' : '#00000000',
-                pointerEvents: 'none',
-              }}
-            />
-          )}
-        </div>
+        <textarea
+          ref={composerRef}
+          testId="composer"
+          value={value}
+          placeholder="Do anything..."
+          minRows={hero ? 2 : 1}
+          maxRows={hero ? 10 : 3}
+          autoFocus
+          theme={CHAT_THEME}
+          style={{
+            width: '100%',
+            minWidth: 0,
+            fontSize,
+            lineHeight,
+            color: C.text,
+            backgroundColor: '#00000000',
+            borderWidth: 0,
+            paddingLeft: textInset,
+            paddingRight: textInset,
+          }}
+          onChange={(event) => onChange(event.value ?? '')}
+          onSubmit={(event) => send(event.value ?? value)}
+        />
         <div
           style={{
             display: 'flex',
@@ -2750,6 +2702,15 @@ const isEntryPoint =
 
 if (isEntryPoint) {
   applyMacCpuThrottleFromEnv()
+  // macOS keeps the immersive look: a transparent titlebar, so the sidebar and
+  // the header paint under the traffic lights. AppKit keeps that strip
+  // draggable. Windows and Linux get the native caption instead, because GPUIX
+  // exposes no API to start a window drag from the app tree: without a caption
+  // there is no draggable region and no minimize, maximize, or close button.
+  const macTitlebar =
+    typeof process !== 'undefined' && process.platform === 'darwin'
+      ? { titlebarTransparent: true, trafficLightX: 16, trafficLightY: 17 }
+      : {}
   // `startEmpty` is the first impression: a blank window, a centered composer,
   // and the workspace chips. Threads, search, and the loaded transcript live in
   // the sidebar; the frame overlay stays off until Settings cycles it.
@@ -2757,10 +2718,8 @@ if (isEntryPoint) {
     title: 'GPUIX Chat',
     width: 1180,
     height: 820,
-    titlebarTransparent: true,
+    ...macTitlebar,
     windowBackground: 'blurred',
-    trafficLightX: 16,
-    trafficLightY: 17,
     debugFrameOverlay: 'hidden',
     // An agent launching this to check its own work must not take the keyboard
     // away from whoever is typing. Automation needs no focus.
