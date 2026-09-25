@@ -302,27 +302,27 @@ const MEMORY = `The chat example keeps one retained React child per turn. Pass \
 
 const TURNS: Turn[] = [
   { kind: 'user', text: 'give me a quick overview' },
-  { kind: 'fold', duration: 'Worked for 10 seconds' },
+  { kind: 'fold', duration: workLabel(10, 7) },
   { kind: 'markdown', source: OVERVIEW },
   { kind: 'user', text: 'How does React reach GPUI?' },
-  { kind: 'fold', duration: 'Worked for 6 seconds' },
+  { kind: 'fold', duration: workLabel(6, 3) },
   { kind: 'markdown', source: ARCHITECTURE },
   { kind: 'user', text: 'How does cross-element text selection work?' },
-  { kind: 'fold', duration: 'Worked for 14 seconds' },
+  { kind: 'fold', duration: workLabel(14, 12) },
   { kind: 'markdown', source: SELECTION },
   { kind: 'code', language: 'rust', source: SELECTION_CODE },
   { kind: 'user', text: 'Make the diff gutter width adapt to the largest line number.' },
-  { kind: 'fold', duration: 'Worked for 8 seconds' },
+  { kind: 'fold', duration: workLabel(8, 4) },
   { kind: 'markdown', source: GUTTER },
   { kind: 'diff', patch: GUTTER_DIFF },
   { kind: 'user', text: 'Do I get hot reload when I edit the Rust side?' },
-  { kind: 'fold', duration: 'Worked for 4 seconds' },
+  { kind: 'fold', duration: workLabel(4, 2) },
   { kind: 'markdown', source: HOT_RELOAD },
   { kind: 'user', text: 'How do skills show up in the app?' },
-  { kind: 'fold', duration: 'Worked for 7 seconds' },
+  { kind: 'fold', duration: workLabel(7, 5) },
   { kind: 'markdown', source: SKILLS },
   { kind: 'user', text: 'Which models should I wire up?' },
-  { kind: 'fold', duration: 'Worked for 5 seconds' },
+  { kind: 'fold', duration: workLabel(5, 1) },
   { kind: 'markdown', source: WIRE_MODELS },
 ]
 
@@ -343,7 +343,7 @@ const CONVERSATIONS: Conversation[] = [
     time: '14h',
     turns: [
       { kind: 'user', text: 'Native SDK vs GPUI comparison' },
-      { kind: 'fold', duration: 'Worked for 9 seconds' },
+      { kind: 'fold', duration: workLabel(9, 6) },
       { kind: 'markdown', source: SDK_VS_GPUI },
     ],
   },
@@ -355,7 +355,7 @@ const CONVERSATIONS: Conversation[] = [
     time: '15h',
     turns: [
       { kind: 'user', text: 'Vercel Labs scriptc implementation notes' },
-      { kind: 'fold', duration: 'Worked for 12 seconds' },
+      { kind: 'fold', duration: workLabel(12, 5) },
       { kind: 'markdown', source: SCRIPT_C },
     ],
   },
@@ -367,7 +367,7 @@ const CONVERSATIONS: Conversation[] = [
     time: '2d',
     turns: [
       { kind: 'user', text: 'check if any memory optimizations are left' },
-      { kind: 'fold', duration: 'Worked for 11 seconds' },
+      { kind: 'fold', duration: workLabel(11, 4) },
       { kind: 'markdown', source: MEMORY },
     ],
   },
@@ -749,44 +749,65 @@ function UserTurn({ text }: { text: string }) {
   )
 }
 
+/**
+ * The fold label, in the shape the reference chrome uses: abbreviated units,
+ * plus how many tool calls the turn made. `workLabel(25, 7)` is
+ * `Worked for 25s and made 7 tool calls`.
+ */
+function workLabel(seconds: number, toolCalls?: number) {
+  const label = `Worked for ${seconds}s`
+  if (!toolCalls) return label
+  return `${label} and made ${toolCalls} tool call${toolCalls === 1 ? '' : 's'}`
+}
+
+/**
+ * A transcript fold: one left-aligned line, no divider rules. The chevron
+ * points right in both states, so the line reads as an aside that hangs off
+ * the reply instead of a rule that splits it. The whole row is the hit target,
+ * since the label alone is a short strip at the left edge.
+ */
 function WorkedFor({ duration }: { duration: string }) {
   const [open, setOpen] = useState(false)
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%' }}>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        gap: 6,
+        width: '100%',
+      }}
+    >
+      <div
+        style={{
+          height: 18,
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+        }}
+      >
+        <Icon name="chevronRight" size={11.5} color={C.tertiary} />
+      </div>
       <div
         style={{
           display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: 10,
-          height: 24,
-          width: '100%',
+          flexDirection: 'column',
+          gap: 8,
+          flexGrow: 1,
+          minWidth: 0,
           cursor: 'pointer',
         }}
         onClick={() => setOpen((value) => !value)}
       >
-        <div style={{ height: 1, flexGrow: 1, backgroundColor: C.border }} />
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 5,
-            flexShrink: 0,
-          }}
-        >
-          <text style={{ fontSize: 13.5, lineHeight: 18, fontWeight: 500, color: C.tertiary }}>
-            {duration}
-          </text>
-          <Icon name={open ? 'chevronDown' : 'chevronRight'} size={11.5} color={C.tertiary} />
-        </div>
-        <div style={{ height: 1, flexGrow: 1, backgroundColor: C.border }} />
-      </div>
-      {open && (
-        <text style={{ fontSize: 13, lineHeight: 18, color: C.secondary }}>
-          Demo reasoning. No model ran. The fold is here so the chrome has something to open.
+        <text style={{ fontSize: 13.5, lineHeight: 18, fontWeight: 500, color: C.tertiary }}>
+          {duration}
         </text>
-      )}
+        {open && (
+          <text style={{ fontSize: 13, lineHeight: 18, color: C.secondary }}>
+            Demo reasoning. No model ran. The fold is here so the chrome has something to open.
+          </text>
+        )}
+      </div>
     </div>
   )
 }
@@ -940,7 +961,7 @@ function demoReplySource({
 
 function demoReply(args: { text: string; modelLabel: string; mode: 'build' | 'plan' }): Turn[] {
   return [
-    { kind: 'fold', duration: 'Worked for 2 seconds' },
+    { kind: 'fold', duration: workLabel(2, 1) },
     { kind: 'markdown', source: demoReplySource(args) },
   ]
 }
@@ -2406,7 +2427,7 @@ export function ChatApp({
           ...turns.slice(0, -1),
           {
             kind: 'fold',
-            duration: seconds === 1 ? 'Worked for 1 second' : `Worked for ${seconds} seconds`,
+            duration: workLabel(seconds, seconds >= 2 ? Math.min(7, seconds) : 1),
           },
           { kind: 'markdown', source: '' },
         ])
