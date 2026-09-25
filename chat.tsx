@@ -90,6 +90,8 @@ const SIDEBAR_WIDTH = 252
 const TRAFFIC_LIGHT_CLEARANCE =
   typeof process !== 'undefined' && process.platform === 'darwin' ? 86 : 8
 const CONTENT_MAX_WIDTH = 720
+/** The centered new-task composer is roomier than the docked one. */
+const HERO_MAX_WIDTH = 780
 const TITLEBAR_HEIGHT = 48
 
 const FONT_SANS = typeof window === 'undefined' ? 'Helvetica' : 'IBM Plex Sans'
@@ -147,7 +149,9 @@ const CHAT_THEME = {
   border: C.border,
   bg: C.canvas,
   accent: C.accent,
-  caret: C.accent,
+  // GPUI paints the caret itself: 2px wide, 75% of the font size, 500ms blink.
+  // White is what the platform caret looks like on this graphite surface.
+  caret: '#FFFFFF',
   fontSans: FONT_SANS,
   codeText: C.codeText,
   codeWash: '#E6EAF214',
@@ -1656,6 +1660,43 @@ function Composer({
   }, [focusTick, renderer])
   const hero = variant === 'hero'
   const ready = !busy && value.trim().length > 0
+  const fontSize = hero ? 15 : 14
+  const lineHeight = hero ? 22 : 20
+  const textInset = hero ? 12 : 10
+  /**
+   * GPUI sizes its caret to cap height — `min(0.75em, lineHeight)` — and draws it
+   * at the text origin, which is exactly where the placeholder starts, so an
+   * empty composer shows a short bar running through the first glyph. While the
+   * composer is empty the native caret is hidden and this full-line bar blinks
+   * in its place, which is what a platform caret looks like. As soon as there is
+   * text the native caret takes over again.
+   */
+  const caretHeight = Math.round(fontSize * 1.2)
+  const caretTop = Math.max(0, Math.round((lineHeight - caretHeight) / 2))
+  const [focused, setFocused] = useState(false)
+  const [caretOn, setCaretOn] = useState(true)
+  const mockCaret = focused && value.length === 0
+  const theme = useMemo(
+    () => (mockCaret ? { ...CHAT_THEME, caret: '#00000000' } : CHAT_THEME),
+    [mockCaret],
+  )
+  useEffect(() => {
+    // `autoFocus` focuses the native input without emitting a React focus event,
+    // so focus is read from the renderer instead of onFocus/onBlur. The poll
+    // only re-renders when the answer changes.
+    const id = composerRef.current?.id
+    if (id == null || !renderer?.getFocusedElementId) return
+    const sync = () => setFocused(renderer.getFocusedElementId?.() === id)
+    sync()
+    const timer = setInterval(sync, 200)
+    return () => clearInterval(timer)
+  }, [renderer, focusTick])
+  useEffect(() => {
+    if (!mockCaret) return
+    setCaretOn(true)
+    const timer = setInterval(() => setCaretOn((on) => !on), 500)
+    return () => clearInterval(timer)
+  }, [mockCaret])
   const send = (text: string) => {
     if (busy) return
     const next = text.trim()
@@ -1681,48 +1722,67 @@ function Composer({
           display: 'flex',
           flexDirection: 'column',
           width: '100%',
-          maxWidth: CONTENT_MAX_WIDTH,
+          maxWidth: hero ? HERO_MAX_WIDTH : CONTENT_MAX_WIDTH,
           overflow: 'visible',
           backgroundColor: C.composer,
-          borderRadius: hero ? 15 : 13,
+          borderRadius: hero ? 20 : 16,
           borderWidth: 1,
           borderColor: hero ? C.borderStrong : C.border,
-          paddingTop: hero ? 12 : 10,
-          paddingBottom: hero ? 12 : 10,
+          paddingTop: hero ? 16 : 10,
+          paddingBottom: hero ? 16 : 10,
         }}
       >
-        <textarea
-          ref={composerRef}
-          testId="composer"
-          value={value}
-          placeholder="Do anything..."
-          minRows={hero ? 2 : 1}
-          maxRows={3}
-          autoFocus
-          theme={CHAT_THEME}
-          style={{
-            width: '100%',
-            minWidth: 0,
-            fontSize: 14,
-            lineHeight: 20,
-            color: C.text,
-            backgroundColor: '#00000000',
-            borderWidth: 0,
-            paddingLeft: 10,
-            paddingRight: 10,
-          }}
-          onChange={(event) => onChange(event.value ?? '')}
-          onSubmit={(event) => send(event.value ?? value)}
-        />
+        <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', width: '100%' }}>
+          <textarea
+            ref={composerRef}
+            testId="composer"
+            value={value}
+            placeholder="Do anything..."
+            minRows={hero ? 3 : 1}
+            maxRows={hero ? 5 : 3}
+            autoFocus
+            theme={theme}
+            style={{
+              width: '100%',
+              minWidth: 0,
+              fontSize,
+              lineHeight,
+              color: C.text,
+              backgroundColor: '#00000000',
+              borderWidth: 0,
+              paddingLeft: textInset,
+              paddingRight: textInset,
+            }}
+            onChange={(event) => onChange(event.value ?? '')}
+            onSubmit={(event) => send(event.value ?? value)}
+          />
+          {mockCaret && (
+            <div
+              testId="composer-caret"
+              style={{
+                position: 'absolute',
+                // A hair left of the text origin, so the bar never merges with
+                // the first glyph's stem — platform fields inset the placeholder
+                // by the caret width instead.
+                left: textInset - 3,
+                top: caretTop,
+                width: 2,
+                height: caretHeight,
+                backgroundColor: caretOn ? '#FFFFFF' : '#00000000',
+                pointerEvents: 'none',
+              }}
+            />
+          )}
+        </div>
         <div
           style={{
             display: 'flex',
             flexDirection: 'row',
             alignItems: 'center',
             gap: 4,
-            marginTop: 8,
-            paddingLeft: 10,
-            paddingRight: 10,
+            marginTop: hero ? 14 : 8,
+            paddingLeft: textInset,
+            paddingRight: textInset,
           }}
         >
           <IconButton icon="attach" testId="attach" />
@@ -1734,9 +1794,9 @@ function Composer({
           <div
             testId={busy ? 'stop' : 'send'}
             style={{
-              width: 26,
-              height: 26,
-              borderRadius: 13,
+              width: hero ? 30 : 26,
+              height: hero ? 30 : 26,
+              borderRadius: hero ? 15 : 13,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -1747,9 +1807,9 @@ function Composer({
             onClick={() => (busy ? onStop?.() : send(value))}
           >
             {busy ? (
-              <Icon name="stop" size={12} color={C.onInverse} />
+              <Icon name="stop" size={hero ? 13 : 12} color={C.onInverse} />
             ) : (
-              <Icon name="send" size={16} color={ready ? C.onInverse : C.ghost} />
+              <Icon name="send" size={hero ? 17 : 16} color={ready ? C.onInverse : C.ghost} />
             )}
           </div>
         </div>
@@ -1765,6 +1825,7 @@ function WorkspaceFooter({
   onWorkspaceChange,
   branch,
   onBranchChange,
+  variant = 'docked',
 }: {
   project: string
   onProjectChange: (next: string) => void
@@ -1772,7 +1833,10 @@ function WorkspaceFooter({
   onWorkspaceChange: (next: string) => void
   branch: string
   onBranchChange: (next: string) => void
+  /** `hero` lines the chips up with the centered new-task composer. */
+  variant?: 'docked' | 'hero'
 }) {
+  const hero = variant === 'hero'
   return (
     <div
       style={{
@@ -1783,7 +1847,7 @@ function WorkspaceFooter({
         width: '100%',
         paddingLeft: 20,
         paddingRight: 20,
-        paddingTop: 4,
+        paddingTop: hero ? 8 : 4,
         paddingBottom: 8,
         userSelect: 'none',
       }}
@@ -1795,10 +1859,10 @@ function WorkspaceFooter({
           alignItems: 'center',
           gap: 2,
           width: '100%',
-          maxWidth: CONTENT_MAX_WIDTH,
+          maxWidth: hero ? HERO_MAX_WIDTH : CONTENT_MAX_WIDTH,
           height: 28,
-          paddingLeft: 10,
-          paddingRight: 10,
+          paddingLeft: hero ? 12 : 10,
+          paddingRight: hero ? 12 : 10,
         }}
       >
         <ProjectPicker value={project} onChange={onProjectChange} />
@@ -2483,7 +2547,7 @@ export function ChatApp({
     />
   )
 
-  const footer = (
+  const footer = (variant: 'docked' | 'hero') => (
     <WorkspaceFooter
       project={project}
       onProjectChange={setProject}
@@ -2491,6 +2555,7 @@ export function ChatApp({
       onWorkspaceChange={setWorkspace}
       branch={branch}
       onBranchChange={setBranch}
+      variant={variant}
     />
   )
 
@@ -2581,7 +2646,7 @@ export function ChatApp({
             }}
           >
             {composer('hero')}
-            {footer}
+            {footer('hero')}
           </motion.div>
         ) : (
           <>
@@ -2594,7 +2659,7 @@ export function ChatApp({
               onRetry={retry}
             />
             {composer('docked')}
-            {footer}
+            {footer('docked')}
           </>
         )}
       </div>
