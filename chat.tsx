@@ -64,6 +64,7 @@ import iconShare from './assets/icons/share.svg' with { type: 'text' }
 import iconMore from './assets/icons/ellipsis.svg' with { type: 'text' }
 import iconAttach from './assets/icons/paperclip.svg' with { type: 'text' }
 import iconStop from './assets/icons/square.svg' with { type: 'text' }
+import iconSliders from './assets/icons/sliders-horizontal.svg' with { type: 'text' }
 
 const C = {
   canvas: '#1A1A1A',
@@ -119,6 +120,7 @@ const ICONS = {
   chevronDown: iconChevronDown,
   chevronRight: iconChevronRight,
   listFilter: iconListFilter,
+  sliders: iconSliders,
   sparkle: iconSparkle,
   wrench: iconWrench,
   send: iconSend,
@@ -405,12 +407,15 @@ function IconButton({
   icon,
   onClick,
   dimmed,
+  selected,
   size = 14,
   testId,
 }: {
   icon: IconName
   onClick?: () => void
   dimmed?: boolean
+  /** Paints the button as on, for a toggle like the sidebar filter. */
+  selected?: boolean
   size?: number
   testId?: string
 }) {
@@ -427,58 +432,13 @@ function IconButton({
         justifyContent: 'center',
         cursor: 'pointer',
         opacity: dimmed ? 0.35 : 1,
+        backgroundColor: selected ? C.overlayStrong : '#00000000',
         hover: dimmed ? undefined : { backgroundColor: C.overlay },
         active: dimmed ? undefined : { backgroundColor: C.overlayStrong },
       }}
       onClick={dimmed ? undefined : onClick}
     >
-      <Icon name={icon} size={size} color={C.tertiary} />
-    </div>
-  )
-}
-
-function SidebarAction({
-  icon,
-  label,
-  onClick,
-  testId,
-}: {
-  icon: IconName
-  label: string
-  onClick?: () => void
-  testId?: string
-}) {
-  return (
-    <div
-      testId={testId}
-      onClick={onClick}
-      style={{
-        display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 10,
-        height: 32,
-        paddingLeft: 4,
-        paddingRight: 4,
-        borderRadius: 7,
-        cursor: 'pointer',
-        hover: { backgroundColor: C.item },
-        active: { backgroundColor: C.overlayStrong },
-      }}
-    >
-      <div
-        style={{
-          width: 20,
-          height: 20,
-          flexShrink: 0,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Icon name={icon} size={14} color={C.secondary} />
-      </div>
-      <text style={{ fontSize: 13, color: C.secondary }}>{label}</text>
+      <Icon name={icon} size={size} color={selected ? C.text : C.tertiary} />
     </div>
   )
 }
@@ -497,47 +457,42 @@ function ConversationRow({
       testId={`thread-${conversation.id}`}
       style={{
         display: 'flex',
-        flexDirection: 'column',
-        gap: 4,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+        height: 30,
         paddingLeft: 8,
         paddingRight: 8,
-        paddingTop: 7,
-        paddingBottom: 7,
         borderRadius: 7,
         cursor: 'pointer',
-        backgroundColor: active ? C.item : '#00000000',
+        backgroundColor: active ? C.overlayStrong : '#00000000',
         hover: { backgroundColor: C.item },
       }}
       onClick={() => onSelect(conversation.id)}
     >
+      <div
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: 3,
+          flexShrink: 0,
+          backgroundColor: C.ghost,
+        }}
+      />
       <text
         style={{
           fontSize: 13.5,
           lineHeight: 18,
           color: C.text,
+          flexGrow: 1,
+          minWidth: 0,
           whiteSpace: 'nowrap',
           textOverflow: 'ellipsis',
         }}
       >
         {conversation.title}
       </text>
-      <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 5 }}>
-        <Icon name="folder" size={12.5} color={C.tertiary} />
-        <text
-          style={{
-            fontSize: 13,
-            lineHeight: 15,
-            color: C.tertiary,
-            flexGrow: 1,
-            minWidth: 0,
-            whiteSpace: 'nowrap',
-            textOverflow: 'ellipsis',
-          }}
-        >
-          {conversation.project}
-        </text>
-        <text style={{ fontSize: 12.5, color: C.ghost, flexShrink: 0 }}>{conversation.time}</text>
-      </div>
+      <text style={{ fontSize: 12.5, color: C.ghost, flexShrink: 0 }}>{conversation.time}</text>
     </div>
   )
 }
@@ -556,6 +511,7 @@ function Sidebar({
   onSettings,
   onFilter,
   filterActive,
+  filterLabel,
 }: {
   conversations: Conversation[]
   activeId: string
@@ -570,16 +526,13 @@ function Sidebar({
   onSettings: () => void
   onFilter: () => void
   filterActive: boolean
+  /** Project name the filter is scoped to, shown in the header while it is on. */
+  filterLabel: string
 }) {
-  const groups = useMemo(() => {
-    const out: { name: string; items: Conversation[] }[] = []
-    for (const conversation of conversations) {
-      const last = out[out.length - 1]
-      if (last && last.name === conversation.group) last.items.push(conversation)
-      else out.push({ name: conversation.group, items: [conversation] })
-    }
-    return out
-  }, [conversations])
+  // The reference sidebar is a two-level tree: the project scope, then the
+  // sessions under it. Both headers collapse.
+  const [projectsOpen, setProjectsOpen] = useState(true)
+  const [sessionsOpen, setSessionsOpen] = useState(true)
 
   return (
     <div
@@ -628,93 +581,124 @@ function Sidebar({
         </div>
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', paddingLeft: 10, paddingRight: 10 }}>
-        <SidebarAction icon="compose" label="New Task" testId="new-task" onClick={onNewTask} />
-      </div>
-
       <div
         style={{
           display: 'flex',
-          flexDirection: 'column',
-          flexGrow: 1,
-          minHeight: 0,
-          overflowY: 'scroll',
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: 8,
+          height: 32,
+          flexShrink: 0,
           paddingLeft: 10,
-          paddingRight: 10,
+          paddingRight: 6,
         }}
       >
-        <div style={{ paddingBottom: 6 }}>
-          <SidebarAction icon="search" label="Search" testId="search" onClick={onSearch} />
-        </div>
-        {groups.map((group, groupIndex) => (
+        <Icon name="folder" size={15} color={C.secondary} />
+        <text
+          style={{
+            fontSize: 13.5,
+            fontWeight: 500,
+            color: C.text,
+            flexGrow: 1,
+            minWidth: 0,
+            whiteSpace: 'nowrap',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {filterActive ? filterLabel : 'All projects'}
+        </text>
+        <IconButton
+          icon={projectsOpen ? 'chevronDown' : 'chevronRight'}
+          testId="projects-toggle"
+          onClick={() => setProjectsOpen((value) => !value)}
+        />
+        <IconButton
+          icon="sliders"
+          testId="thread-filter"
+          selected={filterActive}
+          onClick={onFilter}
+        />
+      </div>
+
+      {projectsOpen && (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            flexGrow: 1,
+            minHeight: 0,
+            paddingTop: 2,
+            paddingLeft: 10,
+            paddingRight: 10,
+          }}
+        >
           <div
-            key={group.name}
-            style={{ display: 'flex', flexDirection: 'column', paddingBottom: 10 }}
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'center',
+              height: 26,
+              flexShrink: 0,
+              paddingLeft: 8,
+              paddingRight: 6,
+            }}
           >
+            <text
+              style={{
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: C.tertiary,
+                flexGrow: 1,
+                minWidth: 0,
+              }}
+            >
+              Sessions
+            </text>
+            <IconButton
+              icon={sessionsOpen ? 'chevronDown' : 'chevronRight'}
+              testId="sessions-toggle"
+              onClick={() => setSessionsOpen((value) => !value)}
+            />
+          </div>
+          {sessionsOpen && (
             <div
               style={{
                 display: 'flex',
-                flexDirection: 'row',
-                alignItems: 'center',
-                height: 28,
-                paddingLeft: 8,
-                paddingRight: 8,
+                flexDirection: 'column',
+                flexGrow: 1,
+                minHeight: 0,
+                overflowY: 'scroll',
+                paddingBottom: 10,
               }}
             >
-              <text
-                style={{
-                  fontSize: 13,
-                  fontWeight: 500,
-                  color: C.secondary,
-                  flexGrow: 1,
-                  minWidth: 0,
-                }}
-              >
-                {group.name}
-              </text>
-              {groupIndex === 0 && (
-                <div
-                  testId="thread-filter"
-                  onClick={onFilter}
-                  style={{
-                    width: 22,
-                    height: 22,
-                    borderRadius: 6,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    cursor: 'pointer',
-                    backgroundColor: filterActive ? C.overlayStrong : '#00000000',
-                    hover: { backgroundColor: C.overlay },
-                  }}
-                >
-                  <Icon name="listFilter" size={14} color={filterActive ? C.text : C.secondary} />
-                </div>
-              )}
+              {conversations.map((conversation) => (
+                <ConversationRow
+                  key={conversation.id}
+                  conversation={conversation}
+                  active={conversation.id === activeId}
+                  onSelect={onSelect}
+                />
+              ))}
             </div>
-            {group.items.map((conversation) => (
-              <ConversationRow
-                key={conversation.id}
-                conversation={conversation}
-                active={conversation.id === activeId}
-                onSelect={onSelect}
-              />
-            ))}
-          </div>
-        ))}
-      </div>
+          )}
+        </div>
+      )}
 
       <div
         style={{
           display: 'flex',
           flexDirection: 'row',
           alignItems: 'center',
+          gap: 2,
           height: 40,
           flexShrink: 0,
-          paddingLeft: 10,
-          paddingRight: 10,
+          paddingLeft: 8,
+          paddingRight: 8,
         }}
       >
+        <IconButton icon="compose" testId="new-task" onClick={onNewTask} />
+        <IconButton icon="search" testId="search" onClick={onSearch} />
+        <div style={{ flexGrow: 1 }} />
         <IconButton icon="settings" testId="settings" onClick={onSettings} />
       </div>
     </div>
@@ -2577,6 +2561,7 @@ export function ChatApp({
           onSettings={() => setOverlay('settings')}
           onFilter={() => setProjectOnly((value) => !value)}
           filterActive={projectOnly}
+          filterLabel={projectLabel}
         />
         <div style={{ width: 1, height: '100%', flexShrink: 0, backgroundColor: C.sidebarBorder }} />
       </motion.div>
@@ -2723,15 +2708,26 @@ const isEntryPoint =
 
 if (isEntryPoint) {
   applyMacCpuThrottleFromEnv()
+  const isMac = typeof process !== 'undefined' && process.platform === 'darwin'
   // macOS keeps the immersive look: a transparent titlebar, so the sidebar and
   // the header paint under the traffic lights. AppKit keeps that strip
   // draggable. Windows and Linux get the native caption instead, because GPUIX
   // exposes no API to start a window drag from the app tree: without a caption
   // there is no draggable region and no minimize, maximize, or close button.
-  const macTitlebar =
-    typeof process !== 'undefined' && process.platform === 'darwin'
-      ? { titlebarTransparent: true, trafficLightX: 16, trafficLightY: 17 }
-      : {}
+  //
+  // `blurred` is the macOS vibrancy backdrop. Elsewhere it puts the window on
+  // the platform composition path (acrylic / blur behind), and the desktop
+  // compositor then moves a frosted snapshot of the window on every drag step:
+  // slow to follow the pointer, and a frame behind it. The app paints its own
+  // opaque canvas, so no backdrop shows through here anyway.
+  const platformChrome = isMac
+    ? {
+        titlebarTransparent: true,
+        windowBackground: 'blurred',
+        trafficLightX: 16,
+        trafficLightY: 17,
+      }
+    : { windowBackground: 'opaque' }
   // `startEmpty` is the first impression: a blank window, a centered composer,
   // and the workspace chips. Threads, search, and the loaded transcript live in
   // the sidebar; the frame overlay stays off until Settings cycles it.
@@ -2739,8 +2735,7 @@ if (isEntryPoint) {
     title: 'GPUIX Chat',
     width: 1180,
     height: 820,
-    ...macTitlebar,
-    windowBackground: 'blurred',
+    ...platformChrome,
     debugFrameOverlay: 'hidden',
     // An agent launching this to check its own work must not take the keyboard
     // away from whoever is typing. Automation needs no focus.
